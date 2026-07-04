@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SFTP File Browser & Editor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+    <style>
+        .file-row:hover {
+            background-color: #f5f5f5;
+        }
+        .folder-icon { color: #ffc107; margin-right: 10px; }
+        .file-icon { color: #0d6efd; margin-right: 10px; }
+        .text-icon { color: #28a745; margin-right: 10px; }
+        .image-icon { color: #fd7e14; margin-right: 10px; }
+        .code-icon { color: #6f42c1; margin-right: 10px; }
+        .alert-fixed {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            min-width: 300px;
+        }
+        .editor-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            z-index: 10000;
+            display: none;
+            flex-direction: column;
+        }
+        .editor-toolbar {
+            padding: 10px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .editor-content {
+            flex: 1;
+            overflow: hidden;
+        }
+        .CodeMirror {
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="mb-4">
+            <i class="fas fa-folder-open"></i> SFTP File Browser & Editor
+        </h1>
+
+        <!-- Форма подключения -->
+        <div id="connectionForm" class="card mb-4">
+            <div class="card-header">
+                <h5><i class="fas fa-plug"></i> Подключение к SFTP</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label>Хост</label>
+                        <input type="text" id="host" class="form-control" placeholder="localhost" value="192.168.10.247">
+                    </div>
+                    <div class="col-md-2">
+                        <label>Порт</label>
+                        <input type="number" id="port" class="form-control" value="22">
+                    </div>
+                    <div class="col-md-3">
+                        <label>Пользователь</label>
+                        <input type="text" id="username" class="form-control" placeholder="username" value="micha">
+                    </div>
+                    <div class="col-md-3">
+                        <label>Пароль</label>
+                        <input type="password" id="password" class="form-control" placeholder="password" value="2014">
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <button id="connectBtn" class="btn btn-primary">
+                        <i class="fas fa-link"></i> Подключиться
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Файловый браузер -->
+        <div id="fileBrowser" style="display: none;">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="btn-group me-2 mb-2">
+                        <button id="backBtn" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Назад
+                        </button>
+                        <button id="refreshBtn" class="btn btn-secondary">
+                            <i class="fas fa-sync-alt"></i> Обновить
+                        </button>
+                        <button id="uploadBtn" class="btn btn-success">
+                            <i class="fas fa-upload"></i> Загрузить
+                        </button>
+                        <button id="mkdirBtn" class="btn btn-info">
+                            <i class="fas fa-folder-plus"></i> Новая папка
+                        </button>
+                        <button id="disconnectBtn" class="btn btn-danger">
+                            <i class="fas fa-sign-out-alt"></i> Отключиться
+                        </button>
+                    </div>
+                    <div class="mt-2">
+                        <strong>Текущая директория:</strong>
+                        <code id="currentDir" class="bg-light p-1">/</code>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Имя</th>
+                                <th>Размер</th>
+                                <th>Дата изменения</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fileList">
+                            <tr><td colspan="4" class="text-center text-muted">Нет данных</td</tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Редактор -->
+    <div id="editorContainer" class="editor-container">
+        <div class="editor-toolbar">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>Редактирование:</strong> <span id="editFileName"></span>
+                </div>
+                <div>
+                    <button id="saveFileBtn" class="btn btn-success btn-sm me-2">
+                        <i class="fas fa-save"></i> Сохранить
+                    </button>
+                    <button id="closeEditorBtn" class="btn btn-secondary btn-sm">
+                        <i class="fas fa-times"></i> Закрыть
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="editor-content">
+            <textarea id="editorTextarea"></textarea>
+        </div>
+    </div>
+
+    <!-- Модальные окна -->
+    <div class="modal fade" id="mkdirModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Создать папку</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" id="folderName" class="form-control" placeholder="Имя папки">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="button" class="btn btn-primary" id="confirmMkdirBtn">Создать</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="fileInput" style="display: none;" multiple>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/shell/shell.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/yaml/yaml.min.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

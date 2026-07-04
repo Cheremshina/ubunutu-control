@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Веб-SSH Клиент</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            overflow: hidden;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 24px;
+        }
+
+        .connection-form {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .connection-form input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .connection-form button {
+            padding: 8px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .connection-form button:hover:not(:disabled) {
+            background: #764ba2;
+            transform: translateY(-1px);
+        }
+
+        .connection-form button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status {
+            display: inline-block;
+            margin-left: 15px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status.connected {
+            background: #4caf50;
+            color: white;
+        }
+
+        .status.disconnected {
+            background: #f44336;
+            color: white;
+        }
+
+        .status.connecting {
+            background: #ff9800;
+            color: white;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .terminal-container {
+            background: #1e1e1e;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .terminal-header {
+            background: #2d2d2d;
+            padding: 10px 15px;
+            color: #fff;
+            font-size: 14px;
+            font-family: monospace;
+            border-bottom: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .connection-info {
+            font-size: 11px;
+            color: #aaa;
+        }
+
+        #terminal {
+            flex: 1;
+            padding: 10px;
+        }
+
+        .toolbar {
+            background: #2d2d2d;
+            padding: 8px;
+            display: flex;
+            gap: 10px;
+            border-top: 1px solid #444;
+        }
+
+        .toolbar button {
+            padding: 5px 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.3s;
+        }
+
+        .toolbar button:hover {
+            background: #764ba2;
+        }
+
+        .error-message {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #f44336;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            display: none;
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .debug-panel {
+            background: #2d2d2d;
+            color: #0f0;
+            font-family: monospace;
+            font-size: 11px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌐 Веб-SSH Клиент</h1>
+            <div class="connection-form">
+                <input type="text" id="host" placeholder="Хост" value="192.168.10.249">
+                <input type="number" id="port" placeholder="Порт" value="22" style="width: 80px;">
+                <input type="text" id="username" placeholder="Пользователь" value="micha">
+                <input type="password" id="password" placeholder="Пароль">
+                <button id="connectBtn">🔌 Подключиться</button>
+                <button id="disconnectBtn" disabled>❌ Отключиться</button>
+                <div id="status" class="status disconnected">Отключен</div>
+            </div>
+            <div class="debug-panel" id="debugPanel">
+                🟡 Ожидание подключения WebSocket...
+            </div>
+        </div>
+
+        <div class="terminal-container">
+            <div class="terminal-header">
+                <span>🖥️ SSH Терминал</span>
+                <span class="connection-info" id="connectionInfo">Не подключен</span>
+            </div>
+            <div id="terminal"></div>
+            <div class="toolbar">
+                <button id="clearBtn">🗑️ Очистить</button>
+                <button id="resetBtn">🔄 Сброс</button>
+                <button id="testBtn">🧪 Тест ввода</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="errorMessage" class="error-message"></div>
+
+    <script>
+        let socket = null;
+        let term = null;
+        let fitAddon = null;
+        let isConnected = false;
+        let wsConnected = false;
+
+        // Функция обновления отладочной панели
+        function updateDebug(message, isError = false) {
+            const debugPanel = document.getElementById('debugPanel');
+            if (debugPanel) {
+                const time = new Date().toLocaleTimeString();
+                debugPanel.innerHTML = `[${time}] ${message}`;
+                if (isError) {
+                    debugPanel.style.background = '#441111';
+                } else {
+                    debugPanel.style.background = '#2d2d2d';
+                }
+            }
+        }
+
+        // Инициализация терминала
+        function initTerminal() {
+            term = new Terminal({
+                cursorBlink: true,
+                fontSize: 14,
+                fontFamily: 'Consolas, monospace',
+                theme: {
+                    background: '#1e1e1e',
+                    foreground: '#d4d4d4',
+                    cursor: '#ffffff',
+                    selection: '#264f78'
+                },
+                rows: 30,
+                cols: 80,
+                convertEol: true
+            });
+
+            fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+
+            const terminalContainer = document.getElementById('terminal');
+            term.open(terminalContainer);
+            fitAddon.fit();
+
+            term.writeln('\x1b[36m╔════════════════════════════════════════════╗\x1b[0m');
+            term.writeln('\x1b[36m║     Веб-SSH Клиент готов к работе          ║\x1b[0m');
+            term.writeln('\x1b[36m╚════════════════════════════════════════════╝\x1b[0m');
+            term.writeln('');
+            term.writeln('\x1b[33mℹ️  Для начала работы введите данные и нажмите "Подключиться"\x1b[0m');
+            term.writeln('');
+
+            // Обработка ввода
+            term.onData(data => {
+                updateDebug(`Ввод: ${data.charCodeAt(0)}`);
+                if (isConnected && socket && wsConnected) {
+                    socket.emit('ssh_command', { command: data });
+                } else if (!isConnected) {
+                    term.write('\r\n\x1b[33m⚠ Не подключено к SSH\x1b[0m\r\n');
+                    term.write('$ ');
+                }
+            });
+
+            // Фокус при клике
+            terminalContainer.addEventListener('click', () => {
+                term.focus();
+                updateDebug('Терминал в фокусе');
+            });
+
+            // Автоматический фокус
+            setTimeout(() => term.focus(), 500);
+        }
+
+        // Подключение к WebSocket
+        function connectWebSocket() {
+            updateDebug('Подключение к WebSocket...');
+
+            socket = io('http://localhost:5000', {
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionAttempts: 5,
+                reconnectionDelay: 1000
+            });
+
+            socket.on('connect', () => {
+                wsConnected = true;
+                updateDebug('✅ WebSocket подключен!');
+                term.writeln('\x1b[32m✓ WebSocket соединение установлено\x1b[0m');
+            });
+
+            socket.on('connect_error', (error) => {
+                wsConnected = false;
+                updateDebug(`❌ WebSocket ошибка: ${error}`, true);
+                term.writeln(`\x1b[31m✗ WebSocket ошибка: ${error}\x1b[0m`);
+            });
+
+            socket.on('ssh_connected', (data) => {
+                isConnected = true;
+                updateUI(true);
+                updateDebug(`✅ SSH подключен: ${data.message}`);
+                term.writeln('\x1b[32m\r\n✓ ' + data.message + '\x1b[0m');
+                term.writeln('\x1b[36mДобро пожаловать!\x1b[0m\r\n');
+                term.focus();
+
+                // Отправляем размер терминала
+                socket.emit('ssh_resize', {
+                    cols: term.cols,
+                    rows: term.rows
+                });
+            });
+
+            socket.on('ssh_output', (data) => {
+                if (data && data.data) {
+                    term.write(data.data);
+                }
+            });
+
+            socket.on('ssh_error', (data) => {
+                updateDebug(`❌ SSH ошибка: ${data.error}`, true);
+                term.writeln('\x1b[31m\r\n✗ ' + data.error + '\x1b[0m\r\n');
+            });
+
+            socket.on('ssh_disconnected', (data) => {
+                isConnected = false;
+                updateUI(false);
+                updateDebug('SSH отключен');
+                term.writeln('\x1b[33m\r\n⚠ ' + (data.message || 'Соединение закрыто') + '\x1b[0m\r\n');
+            });
+
+            socket.on('disconnect', () => {
+                wsConnected = false;
+                updateDebug('❌ WebSocket отключен', true);
+                if (isConnected) {
+                    term.writeln('\x1b[31m\r\n✗ Потеряно соединение с сервером\x1b[0m\r\n');
+                    isConnected = false;
+                    updateUI(false);
+                }
+            });
+        }
+
+        // Подключение к SSH
+        function connectSSH() {
+            const host = document.getElementById('host').value.trim();
+            const port = document.getElementById('port').value;
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            updateDebug(`Попытка подключения к ${host}:${port}`);
+
+            if (!host || !username || !password) {
+                showError('Заполните все поля');
+                return;
+            }
+
+            if (!socket || !wsConnected) {
+                showError('WebSocket не подключен. Обновите страницу.');
+                updateDebug('WebSocket не подключен!', true);
+                return;
+            }
+
+            term.writeln('\x1b[33m\r\n⏳ Подключение к ' + host + '...\x1b[0m');
+            socket.emit('ssh_connect', {
+                host: host,
+                port: port,
+                username: username,
+                password: password
+            });
+        }
+
+        // Отключение от SSH
+        function disconnectSSH() {
+            if (socket && isConnected) {
+                socket.emit('ssh_disconnect');
+                term.writeln('\x1b[33m\r\n⚠ Отключение...\x1b[0m');
+            }
+        }
+
+        // Обновление UI
+        function updateUI(connected) {
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const statusDiv = document.getElementById('status');
+            const connectionInfo = document.getElementById('connectionInfo');
+            const inputs = ['host', 'port', 'username', 'password'];
+
+            if (connected) {
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                statusDiv.className = 'status connected';
+                statusDiv.textContent = 'Подключен';
+                connectionInfo.textContent = '✅ Активное соединение';
+                inputs.forEach(id => {
+                    document.getElementById(id).disabled = true;
+                });
+            } else {
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                statusDiv.className = 'status disconnected';
+                statusDiv.textContent = 'Отключен';
+                connectionInfo.textContent = '❌ Не подключен';
+                inputs.forEach(id => {
+                    document.getElementById(id).disabled = false;
+                });
+            }
+        }
+
+        // Показать ошибку
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = '⚠ ' + message;
+            errorDiv.style.display = 'block';
+            updateDebug(`Ошибка: ${message}`, true);
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        // Очистка терминала
+        function clearTerminal() {
+            term.clear();
+            term.writeln('\x1b[32m✓ Терминал очищен\x1b[0m');
+            term.focus();
+        }
+
+        // Сброс терминала
+        function resetTerminal() {
+            term.reset();
+            term.clear();
+            term.writeln('\x1b[33m⚠ Терминал сброшен\x1b[0m');
+            term.focus();
+        }
+
+        // Тест ввода
+        function testInput() {
+            term.writeln('\r\n\x1b[36m📝 Тест ввода - начните печатать...\x1b[0m');
+            term.focus();
+        }
+
+        // Обработчики событий
+        document.getElementById('connectBtn').onclick = connectSSH;
+        document.getElementById('disconnectBtn').onclick = disconnectSSH;
+        document.getElementById('clearBtn').onclick = clearTerminal;
+        document.getElementById('resetBtn').onclick = resetTerminal;
+        document.getElementById('testBtn').onclick = testInput;
+
+        document.getElementById('password').onkeypress = (e) => {
+            if (e.key === 'Enter') connectSSH();
+        };
+
+        // Запуск
+        initTerminal();
+        connectWebSocket();
+    </script>
+</body>
+</html>
